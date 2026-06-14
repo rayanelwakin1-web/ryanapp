@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:var(--font-sans,sans-serif);background:transparent;overflow:hidden;}
+#game{width:100%;max-width:420px;margin:0 auto;position:relative;}
+canvas{display:block;width:100%;border-radius:12px;}
+#ui{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;}
+#question-panel{
+  position:absolute;bottom:0;left:0;right:0;
+  background:rgba(10,10,30,0.92);
+  border-top:2px solid #4af;
+  border-radius:0 0 12px 12px;
+  padding:10px 12px 12px;
+  pointer-events:all;
+  display:none;
+}
+.q-header{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.player-badge{
+  font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;
+  letter-spacing:.5px;text-transform:uppercase;
+}
+.q-text{color:#eef;font-size:13px;line-height:1.4;margin-bottom:10px;font-weight:500;}
+.answers{display:grid;grid-template-columns:1fr 1fr;gap:7px;}
+.ans-btn{
+  background:rgba(255,255,255,0.08);
+  border:1.5px solid rgba(255,255,255,0.2);
+  color:#ddf;font-size:12px;padding:8px 6px;
+  border-radius:8px;cursor:pointer;
+  transition:background .15s,transform .1s;
+  font-family:inherit;line-height:1.3;text-align:center;
+}
+.ans-btn:active{transform:scale(0.96);}
+.ans-btn.correct{background:rgba(50,220,100,0.3);border-color:#3dc;}
+.ans-btn.wrong{background:rgba(220,60,60,0.3);border-color:#e44;}
+#start-screen{
+  position:absolute;inset:0;
+  background:linear-gradient(160deg,#0a0a2e,#12123a);
+  border-radius:12px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:14px;pointer-events:all;color:#eef;padding:24px;
+}
+#start-screen h2{font-size:20px;font-weight:700;color:#4af;letter-spacing:1px;}
+#start-screen p{font-size:12px;color:#aac;text-align:center;line-height:1.5;}
+.start-btn{
+  background:#4af;border:none;color:#fff;font-size:14px;font-weight:700;
+  padding:12px 30px;border-radius:10px;cursor:pointer;width:100%;
+  font-family:inherit;transition:opacity .15s;
+}
+.start-btn:active{opacity:.8;}
+.player-sel{display:flex;gap:10px;width:100%;}
+.psel{
+  flex:1;background:rgba(255,255,255,0.07);border:1.5px solid rgba(100,170,255,0.3);
+  color:#cce;font-size:13px;padding:10px 6px;border-radius:8px;cursor:pointer;
+  font-family:inherit;transition:all .15s;text-align:center;
+}
+.psel.active{background:rgba(100,170,255,0.25);border-color:#4af;color:#fff;}
+#win-screen{
+  position:absolute;inset:0;
+  background:linear-gradient(160deg,#0a1a0a,#0f2a0f);
+  border-radius:12px;
+  display:none;flex-direction:column;align-items:center;justify-content:center;
+  gap:14px;pointer-events:all;color:#eef;padding:24px;
+}
+#win-screen h2{font-size:22px;font-weight:700;letter-spacing:1px;}
+#win-screen p{font-size:13px;color:#8c8;text-align:center;}
+.timer-bar{height:4px;background:rgba(255,255,255,0.15);border-radius:2px;margin-top:4px;overflow:hidden;}
+.timer-fill{height:100%;background:#4af;transition:width .1s linear;border-radius:2px;}
+</style>
+</head>
+<body>
+<div id="game">
+  <canvas id="c"></canvas>
+  <div id="ui">
+    <div id="start-screen">
+      <h2>🏆 Stair Climber Quiz</h2>
+      <p>Answer questions to climb the stairs! Wrong answers bring the fist! First to the top wins!</p>
+      <p style="font-size:11px;color:#88a;">Select number of players:</p>
+      <div class="player-sel">
+        <div class="psel active" onclick="selectPlayers(1)">1 Player</div>
+        <div class="psel" onclick="selectPlayers(2)">2 Players</div>
+        <div class="psel" onclick="selectPlayers(3)">3 Players</div>
+      </div>
+      <button class="start-btn" onclick="startGame()">▶ Start Game</button>
+    </div>
+    <div id="question-panel">
+      <div class="q-header">
+        <div class="player-badge" id="p-badge">P1</div>
+        <div style="color:#aac;font-size:11px;" id="q-stage"></div>
+        <div style="flex:1;"></div>
+        <div style="color:#aac;font-size:11px;" id="stair-info"></div>
+      </div>
+      <div class="timer-bar"><div class="timer-fill" id="timer-fill"></div></div>
+      <div class="q-text" id="q-text"></div>
+      <div class="answers" id="answers"></div>
+    </div>
+    <div id="win-screen">
+      <div style="font-size:48px;" id="win-emoji">🎉</div>
+      <h2 id="win-title"></h2>
+      <p id="win-msg"></p>
+      <button class="start-btn" onclick="location.reload()">Play Again</button>
+    </div>
+  </div>
+</div>
+<script>
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d');
+const W=420,STEPS=10;
+let H=560;
+canvas.width=W;canvas.height=H;
+
+const COLORS=['#4af','#f84','#4f8','#f4a'];
+const PNAMES=['P1','P2','P3','P4'];
+const BADGE_COLORS=[['#4af','#0a1a2a'],['#f84','#2a1a0a'],['#4f8','#0a2a0a'],['#f4a','#2a0a1a']];
+
+let numPlayers=1,players=[],currentPlayer=0,gameStarted=false;
+let qPanel=document.getElementById('question-panel');
+let answerLocked=false,timerInterval=null,timeLeft=15;
+let fists=[],animFrame;
+
+const questions=[
+  {q:"What is 7 × 8?",a:["54","56","48","64"],c:1},
+  {q:"Capital of France?",a:["Berlin","Madrid","Paris","Rome"],c:2},
+  {q:"Water's chemical formula?",a:["H2O","CO2","O2","HO2"],c:0},
+  {q:"How many sides does a hexagon have?",a:["5","7","8","6"],c:3},
+  {q:"Which planet is closest to the Sun?",a:["Venus","Earth","Mercury","Mars"],c:2},
+  {q:"What is the square root of 144?",a:["11","14","12","13"],c:2},
+  {q:"How many continents are there?",a:["5","6","8","7"],c:3},
+  {q:"What color do you get mixing red and blue?",a:["Orange","Purple","Green","Brown"],c:1},
+  {q:"What is 15% of 200?",a:["25","35","30","40"],c:2},
+  {q:"Largest ocean on Earth?",a:["Atlantic","Indian","Arctic","Pacific"],c:3},
+  {q:"How many days in a leap year?",a:["365","366","367","368"],c:1},
+  {q:"What language do Brazilians speak?",a:["Spanish","French","Portuguese","English"],c:2},
+  {q:"What is the powerhouse of the cell?",a:["Nucleus","Ribosome","Mitochondria","Vacuole"],c:2},
+  {q:"How many bones in the adult human body?",a:["196","206","216","226"],c:1},
+  {q:"Which gas do plants absorb?",a:["Oxygen","Nitrogen","CO2","Hydrogen"],c:2},
+  {q:"What is 9 squared?",a:["72","81","91","63"],c:1},
+  {q:"Who wrote Romeo and Juliet?",a:["Dickens","Tolkien","Shakespeare","Austen"],c:2},
+  {q:"Fastest animal on land?",a:["Lion","Horse","Cheetah","Leopard"],c:2},
+  {q:"How many keys on a standard piano?",a:["76","88","96","72"],c:1},
+  {q:"What is the smallest prime number?",a:["0","1","3","2"],c:3},
+  {q:"Which element has symbol 'Au'?",a:["Silver","Gold","Aluminum","Argon"],c:1},
+  {q:"How many players in a soccer team?",a:["9","10","12","11"],c:3},
+  {q:"What is 1000 meters called?",a:["Centimeter","Kilometer","Millimeter","Decameter"],c:1},
+  {q:"Which is the largest planet?",a:["Saturn","Neptune","Jupiter","Uranus"],c:2},
+  {q:"How many teeth does an adult have?",a:["28","30","32","36"],c:2},
+];
+
+let usedQ=[],currentQ=null;
+
+function shuffleQ(){
+  let pool=[...questions];
+  usedQ=[];
+  for(let i=pool.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
+  return pool;
+}
+let qPool=shuffleQ();
+
+function getNextQ(){
+  if(qPool.length===0)qPool=shuffleQ();
+  return qPool.pop();
+}
+
+// Stair geometry
+function getStairY(step){
+  let top=60,bot=H-100;
+  return bot-(step/STEPS)*(bot-top);
+}
+function getStairX(step){
+  let margin=60;
+  let w=W-margin*2;
+  return margin+(step/STEPS)*w;
+}
+
+function selectPlayers(n){
+  numPlayers=n;
+  document.querySelectorAll('.psel').forEach((el,i)=>el.classList.toggle('active',i===n-1));
+}
+
+function startGame(){
+  document.getElementById('start-screen').style.display='none';
+  gameStarted=true;
+  players=[];
+  for(let i=0;i<numPlayers;i++){
+    players.push({
+      step:0,targetStep:0,y:getStairY(0),x:getStairX(0),
+      color:COLORS[i],name:PNAMES[i],
+      punched:0,punchAnim:0,wobble:0,
+      stepAnim:0,
+    });
+  }
+  currentPlayer=0;
+  setTimeout(()=>askQuestion(),400);
+  loop();
+}
+
+class Fist{
+  constructor(px,py,dir){
+    this.x=px;this.y=py;this.tx=px+dir*80;this.ty=py-30;
+    this.ox=px;this.oy=py;
+    this.t=0;this.done=false;this.hit=false;
+    this.dir=dir;
+  }
+  update(){
+    this.t+=0.07;
+    if(!this.hit&&this.t>=0.5){this.hit=true;}
+    if(this.t>=1){this.done=true;}
+  }
+  draw(c){
+    let t=this.t;
+    let xt,yt;
+    if(t<0.5){
+      let p=t*2;
+      xt=this.ox+(this.tx-this.ox)*easeOut(p);
+      yt=this.oy+(this.ty-this.oy)*easeOut(p)-20*Math.sin(Math.PI*p);
+    }else{
+      let p=(t-0.5)*2;
+      xt=this.tx+(this.ox-this.tx)*easeIn(p);
+      yt=this.ty+(this.oy-this.ty)*easeIn(p)+20*Math.sin(Math.PI*p);
+    }
+    let scale=1+0.3*Math.sin(Math.PI*Math.min(t*2,1));
+    c.save();
+    c.translate(xt,yt);
+    c.scale(scale*this.dir,scale);
+    drawFist(c);
+    c.restore();
+  }
+}
+
+function easeOut(t){return 1-(1-t)*(1-t);}
+function easeIn(t){return t*t;}
+
+function drawFist(c){
+  c.fillStyle='#e8b47a';c.strokeStyle='#8b5a2b';c.lineWidth=1.5;
+  // Palm
+  c.beginPath();c.roundRect(-18,-12,36,24,5);c.fill();c.stroke();
+  // Fingers
+  for(let i=0;i<4;i++){
+    c.beginPath();c.roundRect(-14+i*9,-22,8,14,4);c.fill();c.stroke();
+  }
+  // Thumb
+  c.beginPath();c.roundRect(16,-6,12,10,4);c.fill();c.stroke();
+  // Knuckles
+  c.fillStyle='#c8945a';
+  for(let i=0;i<4;i++){c.beginPath();c.arc(-10+i*9,-12,3,0,Math.PI*2);c.fill();}
+}
+
+function drawStickman(c,x,y,color,name,punch,wobble,step){
+  let w=wobble*5;
+  let py=punch>0?punch*3:0;
+  c.save();
+  c.translate(x+Math.sin(Date.now()/200+wobble)*w,y+py);
+  // Shadow
+  c.fillStyle='rgba(0,0,0,0.15)';
+  c.beginPath();c.ellipse(0,38,10,4,0,0,Math.PI*2);c.fill();
+  // Body
+  c.strokeStyle=color;c.lineWidth=2.5;c.lineCap='round';
+  // Legs - walking anim
+  let legSwing=step>0?Math.sin(Date.now()/150)*18:0;
+  c.beginPath();c.moveTo(0,18);c.lineTo(-8+legSwing,36);c.stroke();
+  c.beginPath();c.moveTo(0,18);c.lineTo(8-legSwing,36);c.stroke();
+  // Arms
+  let armSwing=step>0?Math.sin(Date.now()/150)*12:0;
+  c.beginPath();c.moveTo(0,5);c.lineTo(-12-armSwing,16);c.stroke();
+  c.beginPath();c.moveTo(0,5);c.lineTo(12+armSwing,16);c.stroke();
+  // Torso
+  c.beginPath();c.moveTo(0,-6);c.lineTo(0,18);c.stroke();
+  // Head
+  c.beginPath();c.arc(0,-14,8,0,Math.PI*2);
+  c.fillStyle=color;c.fill();c.strokeStyle=color;c.stroke();
+  // Eyes
+  c.fillStyle='#000';
+  if(punch>0){
+    // X eyes when punched
+    c.strokeStyle='#000';c.lineWidth=1.2;
+    c.beginPath();c.moveTo(-5,-17);c.lineTo(-2,-14);c.stroke();
+    c.beginPath();c.moveTo(-2,-17);c.lineTo(-5,-14);c.stroke();
+    c.beginPath();c.moveTo(2,-17);c.lineTo(5,-14);c.stroke();
+    c.beginPath();c.moveTo(5,-17);c.lineTo(2,-14);c.stroke();
+  } else {
+    c.beginPath();c.arc(-3,-15,1.5,0,Math.PI*2);c.fill();
+    c.beginPath();c.arc(3,-15,1.5,0,Math.PI*2);c.fill();
+  }
+  // Stars if punched
+  if(punch>0){
+    let stars=['★','★','★'];
+    stars.forEach((s,i)=>{
+      let a=(-0.5+i*0.5)*Math.PI;
+      let r=20+5*Math.sin(Date.now()/100+i);
+      c.fillStyle='#ff0';ctx.font='10px sans-serif';
+      c.fillText(s,Math.cos(a)*r-4,Math.sin(a)*r-26);
+    });
+  }
+  // Name tag
+  c.fillStyle='rgba(0,0,0,0.55)';
+  c.beginPath();c.roundRect(-16,-32,32,11,3);c.fill();
+  c.fillStyle=color;c.font='bold 9px sans-serif';c.textAlign='center';
+  c.fillText(name,0,-23);
+  c.restore();
+}
+
+function drawBackground(c){
+  // Sky gradient
+  let grd=c.createLinearGradient(0,0,0,H);
+  grd.addColorStop(0,'#0a0a2e');
+  grd.addColorStop(0.5,'#12203a');
+  grd.addColorStop(1,'#1a1a12');
+  c.fillStyle=grd;c.fillRect(0,0,W,H);
+  // Stars
+  c.fillStyle='rgba(255,255,255,0.7)';
+  let stars=[[30,30],[80,55],[150,20],[200,45],[310,25],[370,60],[60,100],[280,80],[340,110],[420,40]];
+  stars.forEach(([sx,sy])=>{
+    c.beginPath();c.arc(sx,sy,1.2,0,Math.PI*2);c.fill();
+  });
+  // Moon
+  c.fillStyle='#ffe87a';
+  c.beginPath();c.arc(370,40,18,0,Math.PI*2);c.fill();
+  c.fillStyle='#12203a';
+  c.beginPath();c.arc(380,34,14,0,Math.PI*2);c.fill();
+  // Ground
+  c.fillStyle='#2a2a1a';
+  c.fillRect(0,H-30,W,30);
+  ctx.fillStyle='#3a3a2a';
+  for(let i=0;i<W;i+=30){c.fillRect(i,H-30,15,3);}
+}
+
+function drawStairs(c){
+  let steps=STEPS+1;
+  for(let i=0;i<=STEPS;i++){
+    let x=getStairX(i),y=getStairY(i);
+    let w=30;
+    // Stair platform
+    c.fillStyle=i===STEPS?'#ffe87a':'rgba(100,150,220,0.25)';
+    c.strokeStyle=i===STEPS?'#ffd700':'rgba(120,180,255,0.5)';
+    c.lineWidth=i===STEPS?2:1;
+    c.beginPath();c.roundRect(x-w/2,y,w,6,2);c.fill();c.stroke();
+    // Step number
+    if(i>0&&i<STEPS){
+      c.fillStyle='rgba(180,200,255,0.4)';c.font='bold 8px sans-serif';c.textAlign='center';
+      c.fillText(i,x,y-3);
+    }
+    // Connecting risers
+    if(i<STEPS){
+      let nx=getStairX(i+1),ny=getStairY(i+1);
+      c.strokeStyle='rgba(100,150,220,0.2)';c.lineWidth=1;
+      c.setLineDash([3,4]);
+      c.beginPath();c.moveTo(x,y+6);c.lineTo(nx,ny+6);c.stroke();
+      c.setLineDash([]);
+    }
+  }
+  // Trophy at top
+  let tx=getStairX(STEPS),ty=getStairY(STEPS);
+  c.font='22px sans-serif';c.textAlign='center';
+  c.fillText('🏆',tx,ty-10);
+}
+
+function drawHUD(c){
+  players.forEach((p,i)=>{
+    let bx=10+i*(W/numPlayers);
+    c.fillStyle=currentPlayer===i&&gameStarted?'rgba(255,255,255,0.12)':'rgba(0,0,0,0.3)';
+    c.beginPath();c.roundRect(bx,8,W/numPlayers-8,28,5);c.fill();
+    c.fillStyle=p.color;c.font='bold 10px sans-serif';c.textAlign='left';
+    c.fillText(p.name,bx+8,20);
+    // Progress bar
+    c.fillStyle='rgba(255,255,255,0.1)';
+    c.beginPath();c.roundRect(bx+8,22,W/numPlayers-22,6,3);c.fill();
+    c.fillStyle=p.color;
+    let pw=(p.step/STEPS)*(W/numPlayers-22);
+    c.beginPath();c.roundRect(bx+8,22,pw,6,3);c.fill();
+    c.fillStyle='rgba(255,255,255,0.5)';c.font='8px sans-serif';c.textAlign='right';
+    c.fillText(p.step+'/'+STEPS,bx+W/numPlayers-10,28);
+  });
+}
+
+function loop(){
+  ctx.clearRect(0,0,W,H);
+  drawBackground(ctx);
+  drawStairs(ctx);
+  drawHUD(ctx);
+
+  // Animate player positions
+  players.forEach((p,i)=>{
+    let tx=getStairX(p.step),ty=getStairY(p.step)-40;
+    p.x+=(tx-p.x)*0.15;
+    p.y+=(ty-p.y)*0.15;
+    if(p.punchAnim>0)p.punchAnim-=0.05;
+    p.stepAnim=Math.abs(p.x-tx)>3?1:0;
+    drawStickman(ctx,p.x,p.y,p.color,p.name,Math.max(0,p.punchAnim),i,p.stepAnim);
+  });
+
+  // Fists
+  fists=fists.filter(f=>{
+    f.update();
+    f.draw(ctx);
+    return !f.done;
+  });
+
+  if(gameStarted)animFrame=requestAnimationFrame(loop);
+}
+
+function askQuestion(){
+  if(!gameStarted)return;
+  currentQ=getNextQ();
+  let p=players[currentPlayer];
+  let badge=document.getElementById('p-badge');
+  badge.textContent=p.name;
+  badge.style.background=BADGE_COLORS[currentPlayer][0];
+  badge.style.color=BADGE_COLORS[currentPlayer][1];
+  document.getElementById('q-stage').textContent='Turn '+p.name;
+  document.getElementById('stair-info').textContent='Step '+p.step+' → '+Math.min(p.step+1,STEPS);
+  document.getElementById('q-text').textContent=currentQ.q;
+  let ac=document.getElementById('answers');
+  ac.innerHTML='';
+  // Shuffle answers display
+  let order=[0,1,2,3];
+  for(let i=3;i>0;i--){let j=Math.floor(Math.random()*(i+1));[order[i],order[j]]=[order[j],order[i]];}
+  let btns=[];
+  order.forEach(idx=>{
+    let btn=document.createElement('button');
+    btn.className='ans-btn';
+    btn.textContent=currentQ.a[idx];
+    btn.onclick=()=>checkAnswer(idx,btns,order);
+    ac.appendChild(btn);
+    btns.push({btn,idx});
+  });
+  answerLocked=false;
+  startTimer();
+  qPanel.style.display='block';
+}
+
+function startTimer(){
+  clearInterval(timerInterval);
+  timeLeft=15;
+  updateTimerBar();
+  timerInterval=setInterval(()=>{
+    timeLeft--;
+    updateTimerBar();
+    if(timeLeft<=0){
+      clearInterval(timerInterval);
+      if(!answerLocked)timeoutAnswer();
+    }
+  },1000);
+}
+
+function updateTimerBar(){
+  document.getElementById('timer-fill').style.width=(timeLeft/15*100)+'%';
+}
+
+function timeoutAnswer(){
+  if(answerLocked)return;
+  answerLocked=true;
+  // Show correct
+  let ac=document.getElementById('answers');
+  let btns=ac.querySelectorAll('.ans-btn');
+  // Find correct in current layout - just highlight correct
+  // Reshow which is correct — iterate to find it
+  punishPlayer();
+}
+
+function checkAnswer(idx,btns,order){
+  if(answerLocked)return;
+  answerLocked=true;
+  clearInterval(timerInterval);
+  let p=players[currentPlayer];
+  // Find which button was clicked (order-based)
+  // Find the button
+  let ac=document.getElementById('answers');
+  let btnEls=ac.querySelectorAll('.ans-btn');
+  // Find which btn corresponds to idx
+  let clickedEl=null;
+  let correctEl=null;
+  btnEls.forEach((el,i)=>{
+    if(order[i]===idx)clickedEl=el;
+    if(order[i]===currentQ.c)correctEl=el;
+  });
+  if(idx===currentQ.c){
+    if(clickedEl)clickedEl.classList.add('correct');
+    setTimeout(()=>rewardPlayer(),500);
+  }else{
+    if(clickedEl)clickedEl.classList.add('wrong');
+    if(correctEl)correctEl.classList.add('correct');
+    setTimeout(()=>punishPlayer(),600);
+  }
+}
+
+function rewardPlayer(){
+  let p=players[currentPlayer];
+  p.step=Math.min(p.step+1,STEPS);
+  qPanel.style.display='none';
+  if(p.step>=STEPS){showWin(currentPlayer);return;}
+  setTimeout(()=>nextTurn(),500);
+}
+
+function punishPlayer(){
+  let p=players[currentPlayer];
+  // Spawn fist
+  let fx=p.x+(currentPlayer<numPlayers/2?-1:1)*120;
+  fists.push(new Fist(fx,p.y,currentPlayer<numPlayers/2?1:-1));
+  p.punchAnim=2;
+  p.step=Math.max(p.step-1,0);
+  qPanel.style.display='none';
+  setTimeout(()=>nextTurn(),900);
+}
+
+function nextTurn(){
+  if(numPlayers>1){
+    currentPlayer=(currentPlayer+1)%numPlayers;
+  }
+  setTimeout(()=>askQuestion(),300);
+}
+
+function showWin(pi){
+  gameStarted=false;
+  cancelAnimationFrame(animFrame);
+  qPanel.style.display='none';
+  let p=players[pi];
+  document.getElementById('win-emoji').textContent='🏆';
+  document.getElementById('win-title').textContent=p.name+' Wins!';
+  document.getElementById('win-title').style.color=p.color;
+  document.getElementById('win-msg').textContent=numPlayers>1?'Congratulations '+p.name+' reached the top first!':'You reached the top! Amazing!';
+  let ws=document.getElementById('win-screen');
+  ws.style.display='flex';
+  // Final render
+  ctx.clearRect(0,0,W,H);
+  drawBackground(ctx);
+  drawStairs(ctx);
+  players.forEach((pp,i)=>{
+    drawStickman(ctx,pp.x,pp.y,pp.color,pp.name,0,i,0);
+  });
+}
+</script>
+</body>
+</html>
